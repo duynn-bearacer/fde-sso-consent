@@ -8,6 +8,12 @@
 	</head>
 	<body style="font-family: sans-serif; max-width: 420px; margin: 40px auto; padding: 0 16px">
 		<h1>FDE SSO（テスト）</h1>
+		<!-- A Supabase session left from an earlier sign-in: let the user keep it or switch accounts. -->
+		<div id="account" hidden>
+			<p>ログイン中: <b id="current"></b></p>
+			<button id="continue">このアカウントで続行</button>
+			<button id="switch">別のアカウントでログイン</button>
+		</div>
 		<form id="login" hidden>
 			<p><label>Email<br /><input id="email" type="email" required style="width: 100%" /></label></p>
 			<p><label>Password<br /><input id="password" type="password" required style="width: 100%" /></label></p>
@@ -24,7 +30,7 @@
 			// 1) Replace PROJECT_REF with the Supabase project ID (Settings > General).
 			// 2) Replace PUBLISHABLE_KEY with the sb_publishable_... key (Settings > API Keys).
 			//    Never put the sb_secret_... key here.
-			const supabase = createClient('https://vdneojjlwazvljvpdgid.supabase.co', 'sb_publishable_2vjcVhGtMbCNHf_BNFS6Mw_jghX9LXi');
+			const supabase = createClient('https://PROJECT_REF.supabase.co', 'PUBLISHABLE_KEY');
 
 			const id = new URLSearchParams(location.search).get('authorization_id');
 			const $ = (x) => document.getElementById(x);
@@ -38,6 +44,7 @@
 				$('client').textContent = data.client?.name ?? '';
 				$('scope').textContent = data.scope;
 				$('login').hidden = true;
+				$('account').hidden = true;
 				$('consent').hidden = false;
 			}
 
@@ -56,13 +63,27 @@
 				if (error) fail(error);
 				else showConsent();
 			};
+			$('continue').onclick = () => showConsent();
+			$('switch').onclick = async () => {
+				// Ends only this browser's Supabase session; the pending authorization_id stays valid.
+				const { error } = await supabase.auth.signOut({ scope: 'local' });
+				if (error) return fail(error);
+				$('account').hidden = true;
+				$('login').hidden = false;
+			};
 			$('approve').onclick = () => decide('approveAuthorization');
 			$('deny').onclick = () => decide('denyAuthorization');
 
 			if (!id) fail('authorization_id がありません（このページは SSO から開かれます）');
 			else if (!supabase.auth.oauth) fail('supabase-js が古すぎます');
-			else if ((await supabase.auth.getUser()).data.user) showConsent();
-			else $('login').hidden = false;
+			else {
+				const { user } = (await supabase.auth.getUser()).data;
+				if (user) {
+					// Never continue silently with a remembered account (it may be another tenant's).
+					$('current').textContent = user.email ?? user.id;
+					$('account').hidden = false;
+				} else $('login').hidden = false;
+			}
 		</script>
 	</body>
 </html>
