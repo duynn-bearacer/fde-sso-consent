@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>FDE SSO test consent</title>
+		<!-- Test-only consent page for the Supabase OAuth server (SSO test of OFE-7). Not production. -->
+	</head>
+	<body style="font-family: sans-serif; max-width: 420px; margin: 40px auto; padding: 0 16px">
+		<h1>FDE SSO（テスト）</h1>
+		<form id="login" hidden>
+			<p><label>Email<br /><input id="email" type="email" required style="width: 100%" /></label></p>
+			<p><label>Password<br /><input id="password" type="password" required style="width: 100%" /></label></p>
+			<button>ログイン</button>
+		</form>
+		<div id="consent" hidden>
+			<p><b id="client"></b> が <span id="scope"></span> へのアクセスを求めています。</p>
+			<button id="approve">許可</button> <button id="deny">拒否</button>
+		</div>
+		<p id="msg" style="color: #b00"></p>
+		<script type="module">
+			import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+			// 1) Replace PROJECT_REF with the Supabase project ID (Settings > General).
+			// 2) Replace PUBLISHABLE_KEY with the sb_publishable_... key (Settings > API Keys).
+			//    Never put the sb_secret_... key here.
+			const supabase = createClient('https://PROJECT_REF.supabase.co', 'PUBLISHABLE_KEY');
+
+			const id = new URLSearchParams(location.search).get('authorization_id');
+			const $ = (x) => document.getElementById(x);
+			const fail = (e) => ($('msg').textContent = e?.message ?? String(e));
+
+			async function showConsent() {
+				const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(id);
+				if (error) return fail(error);
+				// Already approved before: Supabase answers the redirect back to the exam system.
+				if (!data.authorization_id && data.redirect_url) return location.assign(data.redirect_url);
+				$('client').textContent = data.client?.name ?? '';
+				$('scope').textContent = data.scope;
+				$('login').hidden = true;
+				$('consent').hidden = false;
+			}
+
+			async function decide(fn) {
+				const { data, error } = await supabase.auth.oauth[fn](id);
+				if (error) return fail(error);
+				location.assign(data.redirect_url);
+			}
+
+			$('login').onsubmit = async (event) => {
+				event.preventDefault();
+				const { error } = await supabase.auth.signInWithPassword({
+					email: $('email').value,
+					password: $('password').value
+				});
+				if (error) fail(error);
+				else showConsent();
+			};
+			$('approve').onclick = () => decide('approveAuthorization');
+			$('deny').onclick = () => decide('denyAuthorization');
+
+			if (!id) fail('authorization_id がありません（このページは SSO から開かれます）');
+			else if (!supabase.auth.oauth) fail('supabase-js が古すぎます');
+			else if ((await supabase.auth.getUser()).data.user) showConsent();
+			else $('login').hidden = false;
+		</script>
+	</body>
+</html>
